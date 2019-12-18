@@ -5,7 +5,10 @@ SCHEMA_REPO="https://github.com/instrumenta/kubernetes-json-schema.git"
 REPO_OUTPUT="./kubernetes-json-schema"
 IMAGE="06kellyjac/tmp"
 
+# Default to false
 BUILD_ALL_VERSIONS=${1:-false}
+# Default to true
+SKIP_EXISTING=${SKIP_EXISTING:-true}
 
 cleanup() {
 	if [ -d "$REPO_OUTPUT" ]; then
@@ -84,10 +87,13 @@ build_missing_docker_tags() {
 			fi
 		done
 
-		if $is_match; then
+		if $is_match && $SKIP_EXISTING; then
 			echo "Tag '$VERSION' already exists on image '$IMAGE', skipping ..."
 			echo
 		else
+			if $is_match && ! $SKIP_EXISTING; then
+				echo "Skip building existing existing image, overridden, not skipping ..."
+			fi
 			echo "Tag '$VERSION' does not exist on image '$IMAGE', building ..."
 			FULL_TAG="${IMAGE}:${VERSION}"
 			docker_contain "$REPO_OUTPUT/${VERSION}" "$FULL_TAG"
@@ -111,10 +117,13 @@ build_pinned_legacy_version() {
 		fi
 	done
 
-	if $is_match; then
+	if $is_match && $SKIP_EXISTING; then
 		echo "Tag '$PINNED_TAG' already exists on image '$IMAGE', skipping ..."
 		echo
 	else
+		if $is_match && ! $SKIP_EXISTING; then
+			echo "Skip building existing existing image, overridden, not skipping ..."
+		fi
 		echo "Tag '$PINNED_TAG' does not exist on image '$IMAGE', building ..."
 		FULL_TAG="${IMAGE}:${PINNED_TAG}"
 		docker_contain "$REPO_OUTPUT/master-standalone" "$FULL_TAG"
