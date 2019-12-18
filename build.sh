@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# set -euxo pipefail
+set -eo pipefail
 
 SCHEMA_REPO="https://github.com/instrumenta/kubernetes-json-schema.git"
 REPO_OUTPUT="./kubernetes-json-schema"
-IMAGE="06kellyjac/tmp"
+
+IMAGE="controlplane/kubernetes-json-schema"
 
 # Default to false
 BUILD_ALL_VERSIONS=${1:-false}
@@ -43,10 +44,10 @@ extract_version() {
 	grep -Po "$REGEX_VERSION"
 }
 
-# Function agument has a fallback default
+# Function argument has a fallback default
 # shellcheck disable=SC2120
 latest_three_minor() {
-	# Accept first argument or default to any didgets
+	# Accept first argument or default to any digits
 	MAJOR="${1:-\d}"
 	REGEX_MINOR="v${MAJOR}+\.\d+"
 	grep -Po "$REGEX_MINOR" | uniq | sed 3q
@@ -137,7 +138,7 @@ build_pinned_legacy_version() {
 	PINNED_TAG="kubesec_v2_pinned"
 	COMMIT_SHA="8aa572595b98d73b2b9415ca576f78e163381b10"
 
-	( cd "$REPO_OUTPUT" && git branch && git checkout "$COMMIT_SHA" --quiet && git branch && echo "" )
+	( cd "$REPO_OUTPUT" && git branch && git checkout "$COMMIT_SHA" --quiet && git branch && echo )
 
 	is_match=false
 	for TAG in $DOCKER_TAGS; do
