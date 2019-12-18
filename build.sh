@@ -10,6 +10,10 @@ BUILD_ALL_VERSIONS=${1:-false}
 # Default to true
 SKIP_EXISTING=${SKIP_EXISTING:-true}
 
+if [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_SHA" ]; then
+	CI_LINK="https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}/checks"
+fi
+
 cleanup() {
 	if [ -d "$REPO_OUTPUT" ]; then
 		rm -rf "$REPO_OUTPUT"
@@ -66,11 +70,37 @@ get_docker_tags() {
 docker_contain() {
 	CONTEXT="$1"
 	TAG="$2"
+	DATETIME="$(date --rfc-3339=seconds | sed 's/ /T/')"
 
-	echo docker build "$CONTEXT" -f Dockerfile -t "$TAG"
+	add_buildarg() {
+		KEY="$1"
+		VALUE="$2"
+		BUILD_ARGS=" --build-arg $KEY='${VALUE}'$BUILD_ARGS"
+	}
+	
+	get_sha() {
+		if [ -n "$GITHUB_SHA" ]; then
+			echo "$GITHUB_SHA"
+		else
+			git rev-parse HEAD
+		fi
+	}
+
+	BUILD_ARGS=""
+
+	add_buildarg "DATETIME" "$DATETIME"
+
+	add_buildarg "SHA" "$(get_sha)"
+
+	if [ -n "$CI_LINK" ]; then
+		add_buildarg "CI_LINK" "$CI_LINK"
+	fi
+
+	echo "$BUILD_ARGS"
+	eval "docker build $CONTEXT -f Dockerfile -t $TAG $BUILD_ARGS"
 	echo "Success"
 	echo "Pushing image '$TAG' to Docker Hub ..."
-	echo docker push "$TAG"
+	docker push "$TAG"
 	echo "Success"
 	echo
 }
