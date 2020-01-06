@@ -6,8 +6,6 @@ REPO_OUTPUT="./kubernetes-json-schema"
 
 IMAGE="controlplane/kubernetes-json-schema"
 
-# Default to false
-BUILD_ALL_VERSIONS=${1:-false}
 # Default to true
 SKIP_EXISTING=${SKIP_EXISTING:-true}
 
@@ -161,29 +159,33 @@ build_pinned_legacy_version() {
   fi
 }
 
+main() {
 
-trap cleanup EXIT SIGINT SIGQUIT
-cleanup
-clone_schemas
+  trap cleanup EXIT SIGINT SIGQUIT
+  cleanup
+  clone_schemas
 
-SORTED_SEMVER=$(list_standalone_versions | sort_semver)
-VERSIONS_DIR=$(echo "$SORTED_SEMVER" | extract_dir)
-VERSIONS=$(echo "$SORTED_SEMVER" | extract_version)
+  SORTED_SEMVER=$(list_standalone_versions | sort_semver)
+  VERSIONS_DIR=$(echo "$SORTED_SEMVER" | extract_dir)
+  VERSIONS=$(echo "$SORTED_SEMVER" | extract_version)
 
-if ! $BUILD_ALL_VERSIONS; then
-  VERSIONS=$(echo "$VERSIONS" | latest_three_minor)
-fi
+  if [[ "${IS_BUILD_ALL_VERSIONS:-}" != "" ]]; then
+    VERSIONS=$(echo "$VERSIONS" | latest_three_minor)
+  fi
 
-# Attach master as a required version to build
-VERSIONS="$VERSIONS
+  # Attach master as a required version to build
+  VERSIONS="$VERSIONS
 master"
 
-TARGET_VERSIONS=$(matching_patches "$VERSIONS_DIR" "$VERSIONS")
-echo "Target Versions:"
-echo "${TARGET_VERSIONS}"
-echo
+  TARGET_VERSIONS=$(matching_patches "$VERSIONS_DIR" "$VERSIONS")
+  echo "Target Versions:"
+  echo "${TARGET_VERSIONS}"
+  echo
 
-DOCKER_TAGS=$(get_docker_tags)
-build_missing_docker_tags "$DOCKER_TAGS" "$TARGET_VERSIONS"
+  DOCKER_TAGS=$(get_docker_tags)
+  build_missing_docker_tags "$DOCKER_TAGS" "$TARGET_VERSIONS"
 
-build_pinned_legacy_version "$DOCKER_TAGS"
+  build_pinned_legacy_version "$DOCKER_TAGS"
+}
+
+main "${@}"
