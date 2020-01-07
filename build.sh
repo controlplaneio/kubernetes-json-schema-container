@@ -12,7 +12,7 @@
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   # exit on error or pipe failure
-set -eo pipefail
+  set -eo pipefail
 
   # error on unset variable
   # shellcheck disable=SC2016
@@ -113,7 +113,7 @@ docker_contain() {
   }
 
   get_sha() {
-    if [ -n "$GITHUB_SHA" ]; then
+    if [[ "${GITHUB_SHA:-}" != "" ]]; then
       echo "$GITHUB_SHA"
     else
       git rev-parse HEAD
@@ -126,16 +126,17 @@ docker_contain() {
 
   add_buildarg "SHA" "$(get_sha)"
 
-  if [ -n "$CI_LINK" ]; then
+  if [[ "${CI_LINK:-}" != "" ]]; then
     add_buildarg "CI_LINK" "$CI_LINK"
   fi
 
-  echo "$BUILD_ARGS"
-  eval "docker build $CONTEXT -f Dockerfile -t $TAG $BUILD_ARGS"
-  echo "Success"
-  echo "Pushing image '$TAG' to Docker Hub ..."
-  docker push "$TAG"
-  echo "Success"
+  debug "$BUILD_ARGS"
+
+  cmd "docker build $CONTEXT -f Dockerfile -t $TAG $BUILD_ARGS"
+  success "Image built"
+  info "Pushing image '$TAG' to Docker Hub ..."
+  cmd "docker push $TAG"
+  success "Image pushed"
   echo
 }
 
@@ -152,13 +153,13 @@ build_missing_docker_tags() {
     done
 
     if $is_match && $SKIP_EXISTING; then
-      echo "Tag '$VERSION' already exists on image '$IMAGE', skipping ..."
+      info "Tag '$VERSION' already exists on image '$IMAGE', skipping ..."
       echo
     else
       if $is_match && ! $SKIP_EXISTING; then
-        echo "Skip building existing existing image, overridden, not skipping ..."
+        info "Skip building existing existing image, overridden, not skipping ..."
       fi
-      echo "Tag '$VERSION' does not exist on image '$IMAGE', building ..."
+      info "Tag '$VERSION' does not exist on image '$IMAGE', building ..."
       FULL_TAG="${IMAGE}:${VERSION}"
       docker_contain "$REPO_OUTPUT/${VERSION}" "$FULL_TAG"
     fi
@@ -171,7 +172,9 @@ build_pinned_legacy_version() {
   PINNED_TAG="kubesec_v2_pinned"
   COMMIT_SHA="8aa572595b98d73b2b9415ca576f78e163381b10"
 
-  ( cd "$REPO_OUTPUT" && git branch && git checkout "$COMMIT_SHA" --quiet && git branch && echo )
+  info "Building kubesec pinned image"
+
+  ( cd "$REPO_OUTPUT" && git checkout "$COMMIT_SHA" --quiet && echo )
 
   is_match=false
   for TAG in $DOCKER_TAGS; do
@@ -182,13 +185,13 @@ build_pinned_legacy_version() {
   done
 
   if $is_match && $SKIP_EXISTING; then
-    echo "Tag '$PINNED_TAG' already exists on image '$IMAGE', skipping ..."
+    info "Tag '$PINNED_TAG' already exists on image '$IMAGE', skipping ..."
     echo
   else
     if $is_match && ! $SKIP_EXISTING; then
-      echo "Skip building existing existing image, overridden, not skipping ..."
+      info "Skip building existing existing image, overridden, not skipping ..."
     fi
-    echo "Tag '$PINNED_TAG' does not exist on image '$IMAGE', building ..."
+    info "Tag '$PINNED_TAG' does not exist on image '$IMAGE', building ..."
     FULL_TAG="${IMAGE}:${PINNED_TAG}"
     docker_contain "$REPO_OUTPUT/master-standalone" "$FULL_TAG"
   fi
@@ -208,23 +211,26 @@ main() {
   VERSIONS_DIR=$(echo "$SORTED_SEMVER" | extract_dir)
   VERSIONS=$(echo "$SORTED_SEMVER" | extract_version)
 
-  if [[ "${IS_BUILD_ALL_VERSIONS:-}" != "" ]]; then
+  if [[ "${IS_BUILD_ALL_VERSIONS:-0}" == 0 ]]; then
+    info "Building the last 3 minor versions"
     VERSIONS=$(echo "$VERSIONS" | latest_three_minor)
+  else
+    info "Building all versions"
   fi
 
   # Attach master as a required version to build
-  VERSIONS="$VERSIONS
-master"
+  VERSIONS="${VERSIONS}${NL}master"
 
   TARGET_VERSIONS=$(matching_patches "$VERSIONS_DIR" "$VERSIONS")
-  echo "Target Versions:"
-  echo "${TARGET_VERSIONS}"
+  info "Target Versions:${NL}${TARGET_VERSIONS}"
   echo
 
   DOCKER_TAGS=$(get_docker_tags)
   build_missing_docker_tags "$DOCKER_TAGS" "$TARGET_VERSIONS"
 
-  build_pinned_legacy_version "$DOCKER_TAGS"
+  if [[ ${IS_BUILD_KUBESEC_PINNED:-0} == 1 ]]; then
+    build_pinned_legacy_version "$DOCKER_TAGS"
+  fi
 }
 
 # Arguments
@@ -298,7 +304,7 @@ usage() {
   if [[ "${*}" == "" ]]; then
     exit 0
   else
-  exit 2
+    exit 2
   fi
 } 2>/dev/null
 
