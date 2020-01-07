@@ -1,5 +1,40 @@
 #!/usr/bin/env bash
+#
+# Jack Kelly, 2019-12-20 15:11:57
+# jack@control-plane.io
+#
+## Usage: %SCRIPT_NAME% [options] filename
+##
+## Options:
+##   -v, --version    Print version
+##   -h, --help       Display this message
+##
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  # exit on error or pipe failure
 set -eo pipefail
+
+  # error on unset variable
+  # shellcheck disable=SC2016
+  if test "${BASH}" = "" || "${BASH}" -uc 'a=();true "${a[@]}"' 2>/dev/null; then
+    set -o nounset
+  fi
+
+  # error on clobber
+  set -o noclobber
+
+  # disable passglob
+  shopt -s nullglob globstar
+fi
+
+# resolved directory and self
+DIR=$(cd "$(dirname "${0}")" && pwd)
+export DIR
+THIS_SCRIPT="${DIR}/$(basename "${0}")"
+export THIS_SCRIPT
+
+NL='
+'
 
 SCHEMA_REPO="https://github.com/instrumenta/kubernetes-json-schema.git"
 REPO_OUTPUT="./kubernetes-json-schema"
@@ -9,7 +44,7 @@ IMAGE="controlplane/kubernetes-json-schema"
 # Default to true
 SKIP_EXISTING=${SKIP_EXISTING:-true}
 
-if [ -n "$GITHUB_REPOSITORY" ] && [ -n "$GITHUB_SHA" ]; then
+if [[ "${GITHUB_REPOSITORY:-}" != "" ]] && [[ "${GITHUB_SHA:-}" != "" ]]; then
   CI_LINK="https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}/checks"
 fi
 
@@ -161,6 +196,10 @@ build_pinned_legacy_version() {
 
 main() {
 
+  prepare_colours
+
+  handle_arguments "$@"
+
   trap cleanup EXIT SIGINT SIGQUIT
   cleanup
   clone_schemas
@@ -187,5 +226,160 @@ master"
 
   build_pinned_legacy_version "$DOCKER_TAGS"
 }
+
+# Arguments
+
+handle_arguments() {
+  parse_arguments "${@:-}"
+  validate_arguments "${@:-}"
+}
+
+parse_arguments() {
+  local CURRENT_ARG
+  local NEXT_ARG
+  local SPLIT_ARG
+  local COUNT=0
+
+  if [[ "${#}" == 1 && "${1:-}" == "" ]]; then
+    return 0
+  fi
+
+  while [[ "${#}" -gt 0 ]]; do
+    CURRENT_ARG="${1}"
+
+    COUNT=$((COUNT + 1))
+    if [[ "${COUNT}" -gt 100 ]]; then
+      error "Too many arguments or '${CURRENT_ARG}' is unknown"
+    fi
+
+    IFS='=' read -ra SPLIT_ARG <<<"${CURRENT_ARG}"
+    if [[ ${#SPLIT_ARG[@]} -gt 1 ]]; then
+      CURRENT_ARG="${SPLIT_ARG[0]}"
+      unset 'SPLIT_ARG[0]'
+      NEXT_ARG="$(printf "%s=" "${SPLIT_ARG[@]}")"
+      NEXT_ARG="${NEXT_ARG%?}"
+    else
+      shift
+      NEXT_ARG="${1:-}"
+    fi
+
+    case ${CURRENT_ARG} in
+      -h | --help) usage ;;
+      -v | --version)
+        get_version
+        exit 0
+        ;;
+      --debug)
+        DEBUG=1
+        set -xe
+        ;;
+      --build-all-versions) IS_BUILD_ALL_VERSIONS=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      --kubesec | --include-kubesec-pinned) IS_BUILD_KUBESEC_PINNED=1 ;;
+      -*) usage "${CURRENT_ARG}: unknown option" ;;
+      *) ARGUMENTS+=("${CURRENT_ARG}") ;;
+    esac
+  done
+}
+
+validate_arguments() {
+#  FILENAME="${ARGUMENTS[0]:-}" || true
+
+#  [[ -z "${FILENAME:-}" ]] && usage "Filename required"
+
+  :
+}
+
+# helper functions
+
+usage() {
+  [ "${*}" ] && echo "${THIS_SCRIPT}: ${COLOUR_RED}${*}${COLOUR_RESET}" && echo
+  sed -n '/^##/,/^$/s/^## \{0,1\}//p' "${THIS_SCRIPT}" | sed "s/%SCRIPT_NAME%/$(basename "${THIS_SCRIPT}")/g"
+  if [[ "${*}" == "" ]]; then
+    exit 0
+  else
+  exit 2
+  fi
+} 2>/dev/null
+
+success() {
+  [ "${*:-}" ] && RESPONSE="${*}" || RESPONSE="Unknown Success"
+  printf "%s\\n" "$(log_message_prefix)${COLOUR_GREEN}${RESPONSE}${COLOUR_RESET}"
+} 1>&2
+
+cmd() {
+  [ "${*:-}" ] && CMD="${*}" || CMD="Unknown DEBUG"
+  [[ ${DRY_RUN:-0} == 0 ]] && eval "$CMD" || printf "%s\\n" "$(log_message_prefix)${COLOUR_RESET}[${COLOUR_BLUE}DRY RUN${COLOUR_RESET}] ${CMD}${COLOUR_RESET}"
+} 1>&2
+
+debug() {
+  [ "${*:-}" ] && DEBUG_LOG="${*}" || DEBUG_LOG="Unknown DEBUG"
+  [[ ${DEBUG:-0} == 0 ]] || printf "%s\\n" "$(log_message_prefix)${COLOUR_RESET}[${COLOUR_GREEN}DEBUG${COLOUR_RESET}] ${DEBUG_LOG}${COLOUR_RESET}"
+} 1>&2
+
+info() {
+  [ "${*:-}" ] && INFO="${*}" || INFO="Unknown Info"
+  printf "%s\\n" "$(log_message_prefix)${COLOUR_WHITE}${INFO}${COLOUR_RESET}"
+} 1>&2
+
+warning() {
+  [ "${*:-}" ] && ERROR="${*}" || ERROR="Unknown Warning"
+  printf "%s\\n" "$(log_message_prefix)${COLOUR_YELLOW}${ERROR}${COLOUR_RESET}"
+} 1>&2
+
+error() {
+  [ "${*:-}" ] && ERROR="${*}" || ERROR="Unknown Error"
+  printf "%s\\n" "$(log_message_prefix)${COLOUR_RED}${ERROR}${COLOUR_RESET}"
+  exit 3
+} 1>&2
+
+error_env_var() {
+  error "${1} environment variable required"
+}
+
+log_message_prefix() {
+  local TIMESTAMP
+  # local THIS_SCRIPT_SHORT=${DIR}
+  local THIS_SCRIPT_SHORT=${THIS_SCRIPT/${DIR}/.}
+  TIMESTAMP="[$(date +'%Y-%m-%dT%H:%M:%S')]"
+  tput bold 2>/dev/null
+  echo -n "${TIMESTAMP} ${THIS_SCRIPT_SHORT}: "
+}
+
+# ---
+
+prepare_colours() {
+  export CLICOLOR=1
+  export TERM="${TERM:-xterm-color}"
+
+  COLOUR_BLACK=$(tput setaf 0 :-"" 2>/dev/null)
+  export COLOUR_BLACK
+
+  COLOUR_RED=$(tput setaf 1 :-"" 2>/dev/null)
+  export COLOUR_RED
+
+  COLOUR_GREEN=$(tput setaf 2 :-"" 2>/dev/null)
+  export COLOUR_GREEN
+
+  COLOUR_YELLOW=$(tput setaf 3 :-"" 2>/dev/null)
+  export COLOUR_YELLOW
+
+  COLOUR_BLUE=$(tput setaf 4 :-"" 2>/dev/null)
+  export COLOUR_BLUE
+
+  COLOUR_MAGENTA=$(tput setaf 5 :-"" 2>/dev/null)
+  export COLOUR_MAGENTA
+
+  COLOUR_CYAN=$(tput setaf 6 :-"" 2>/dev/null)
+  export COLOUR_CYAN
+
+  COLOUR_WHITE=$(tput setaf 7 :-"" 2>/dev/null)
+  export COLOUR_WHITE
+
+  COLOUR_RESET=$(tput sgr0 :-"" 2>/dev/null)
+  export COLOUR_RESET
+}
+
+# ---
 
 main "${@}"
